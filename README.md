@@ -1,0 +1,2 @@
+# Stryktipset-app
+stryktipset-app
