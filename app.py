@@ -17,7 +17,7 @@ def hamta_grundmatris():
 
 def hamta_live_kupong():
     resp = requests.get(API_URL, headers=HEADERS, timeout=10)
-    draw = resp.json()["draws"]
+    draw = resp.json()["draws"].pop(0)
     omgang = draw.get("drawNumber", "Okänd")
     matcher = []
     streck_matris = np.zeros((13, 3), dtype=np.float64)
