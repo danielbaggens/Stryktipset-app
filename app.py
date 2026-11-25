@@ -1,4 +1,4 @@
-import itertools, io, math, re
+import io, math, re
 import numpy as np, openpyxl, pandas as pd, requests, streamlit as st
 
 st.set_page_config(page_title="Stryktipset Pro", page_icon="⚽", layout="centered")
@@ -31,7 +31,12 @@ def hamta_live_kupong():
 def kor_reducering_fran_df(df, streck_matris, extra_marginal=0.0):
     rader = hamta_grundmatris()
     rad_streck = streck_matris[np.arange(13), rader]
-    aktiva_df = df[df["Aktiv"].astype(str).str.strip().str.upper() == "JA"]
+    rank_matris = np.argsort(np.argsort(-streck_matris, axis=1), axis=1)
+    rad_rank = rank_matris[np.arange(13), rader]
+    aktiva_df = df[df["Aktiv"].astype(str).str.strip().str.upper() == "JA"].copy()
+    aktiva_df["_prio"] = aktiva_df["Typ"].astype(str).str.strip().str.upper().apply(lambda t: 1 if t.startswith("INTERVALL") else 0)
+    aktiva_df = aktiva_df.sort_values("_prio")
+
     for _, row in aktiva_df.iterrows():
         if rader.shape[0] == 0: break
         typ = str(row["Typ"]).strip().upper()
@@ -40,8 +45,21 @@ def kor_reducering_fran_df(df, streck_matris, extra_marginal=0.0):
         if typ == "ANTAL_1": s = np.sum(rader==0, axis=1); ok = (s >= float(v1)) & (s <= float(v2))
         elif typ == "ANTAL_X": s = np.sum(rader==1, axis=1); ok = (s >= float(v1)) & (s <= float(v2))
         elif typ == "ANTAL_2": s = np.sum(rader==2, axis=1); ok = (s >= float(v1)) & (s <= float(v2))
-        elif typ == "TECKENBYTEN": b = np.sum(rader[:,:-1]!=rader[:,1:], axis=1); ok = (b >= float(v1)) & (b <= float(v2))
-        elif typ == "ANTAL_PAR": p = np.sum(rader[:,:-1]==rader[:,1:], axis=1); ok = (p >= float(v1)) & (p <= float(v2))
+        elif typ == "ANTAL_FAVORITER": s = np.sum(rad_rank==0, axis=1); ok = (s >= float(v1)) & (s <= float(v2))
+        elif typ == "ANTAL_ANDRAHAND": s = np.sum(rad_rank==1, axis=1); ok = (s >= float(v1)) & (s <= float(v2))
+        elif typ == "ANTAL_SKRALLAR": s = np.sum(rad_rank==2, axis=1); ok = (s >= float(v1)) & (s <= float(v2))
+        elif typ == "POANGSUMMA": p = np.sum(rad_rank + 1, axis=1); ok = (p >= float(v1)) & (p <= float(v2))
+        elif typ == "RAD_ODDS":
+            odds = 1.0 / np.prod(np.maximum(rad_streck, 1.0) / 100.0, axis=1)
+            ok = (odds >= float(v1)) & (odds <= float(v2))
+        elif typ == "FALLANDE_FAVORITER":
+            grans = float(p_min) if pd.notna(p_min) and str(p_min).strip() != "" else 65.0
+            har_stor_fav = (np.max(streck_matris, axis=1) >= grans)
+            foll = np.sum((rad_rank > 0) & har_stor_fav, axis=1)
+            ok = (foll >= float(v1)) & (foll <= float(v2))
+        elif typ == "SKRALL_SUMMA":
+            ss = np.sum(np.where(rad_rank > 0, rad_streck, 0.0), axis=1)
+            ok = (ss >= float(v1)) & (ss <= float(v2))
         elif typ == "STRECKSUMMA": ss = np.sum(rad_streck, axis=1); ok = (ss >= float(v1)) & (ss <= float(v2))
         elif typ == "TOPP_STRECKADE":
             tr = np.partition(streck_matris.flatten(), -int(p_min))[-int(p_min)]
@@ -57,7 +75,7 @@ def kor_reducering_fran_df(df, streck_matris, extra_marginal=0.0):
             else: t = np.sum(in_int, axis=1)
             ok = (t >= float(v1)) & (t <= float(v2))
         else: continue
-        rader, rad_streck = rader[ok], rad_streck[ok]
+        rader, rad_streck, rad_rank = rader[ok], rad_streck[ok], rad_rank[ok]
     return rader, len(aktiva_df)
 st.title("⚽ Stryktipset Mobilmotor")
 
@@ -71,15 +89,15 @@ if uppladdad_fil is not None:
         st.session_state["senaste_filnamn"] = uppladdad_fil.name
 elif "villkor_df" not in st.session_state:
     st.session_state["villkor_df"] = pd.DataFrame([
-        {"Aktiv": "JA", "Typ": "TOPP_STRECKADE", "Varde1": 1, "Varde2": 4, "ProcentMin": 5, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Av 5 mest spelade"},
-        {"Aktiv": "JA", "Typ": "STRECKSUMMA", "Varde1": 420, "Varde2": 630, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Total strecksumma"},
+        {"Aktiv": "JA", "Typ": "POANGSUMMA", "Varde1": 21, "Varde2": 26, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Rankpoäng 21-26"},
+        {"Aktiv": "JA", "Typ": "STRECKSUMMA", "Varde1": 490, "Varde2": 545, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Total strecksumma"},
     ])
 
 st.subheader("🎛️ Snabbjustering & Redigerare")
 extra_marginal = st.slider("Extra marginal på alla intervall (± procentenheter)", -3.0, 5.0, 0.0, 0.5)
 
 with st.expander("✏️ Öppna villkorsredigeraren", expanded=False):
-    filter_text = st.text_input("Sök villkor (t.ex. INTERVALL_1 eller 45)", "")
+    filter_text = st.text_input("Sök villkor (t.ex. POANGSUMMA eller Nytt)", "")
     df_att_visa = st.session_state["villkor_df"]
     if filter_text:
         mask = df_att_visa.apply(lambda r: r.astype(str).str.contains(filter_text, case=False).any(), axis=1)
