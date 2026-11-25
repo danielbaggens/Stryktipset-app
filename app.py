@@ -126,9 +126,9 @@ if st.button("🔄 Hämta live-procent & Beräkna nu", type="primary", use_conta
         if kostnad > 20000:
             st.error("⚠️ Över maxgränsen 20 000 kr! Dra reglaget 'Extra marginal' åt vänster.")
         elif kostnad > 2200:
-            st.warning(f"⚠️ {kostnad:,} rader överstiger 2 200 rader för en fil. Systemet delas upp i {math.ceil(kostnad / 2200)} filer, eller dra reglaget åt vänster.".replace(",", " "))
+            st.warning(f"⚠️ {kostnad:,} rader överstiger 2 200 rader för en fil. Systemet delas upp med 2 200, 2 199 osv. rader per fil.".replace(",", " "))
 
-                if kostnad > 0:
+        if kostnad > 0:
             tecken_map = np.array(["1", "X", "2"])
             start_idx = 0
             del_nr = 1
@@ -145,3 +145,8 @@ if st.button("🔄 Hämta live-procent & Beräkna nu", type="primary", use_conta
 
             st.link_button("🚀 2. Öppna Spela Tillsammans", "https://svenskaspel.se", use_container_width=True)
             st.link_button("⚽ Alt: Öppna vanliga Stryktipset", "https://svenskaspel.se", use_container_width=True)
+        else:
+            st.warning("0 rader klarade villkoren! Dra reglaget 'Extra marginal' åt höger och beräkna igen.")
+
+        with st.expander("Visa veckans live-procent"):
+            st.dataframe(matcher, use_container_width=True)
