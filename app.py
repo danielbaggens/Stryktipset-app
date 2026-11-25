@@ -122,6 +122,11 @@ if st.button("🔄 Hämta live-procent & Beräkna nu", type="primary", use_conta
         c1, c2 = st.columns(2)
         c1.metric("Systemkostnad", f"{kostnad:,} kr".replace(",", " "))
         c2.metric("Antal rader", f"{kostnad:,} st".replace(",", " "))
+             if kostnad > 20000:
+         st.error("⚠️ Över maxgränsen 20 000 kr! Dra reglaget 'Extra marginal' åt vänster.")
+     elif kostnad > 2200:
+         st.warning(f"⚠️ {kostnad:,} rader överstiger 2 200 rader för en fil. Systemet delas upp i {math.ceil(kostnad / 2200)} filer, eller dra reglaget åt vänster.".replace(",", " "))
+
 
         if kostnad > 0:
             tecken_map = np.array(["1", "X", "2"])
