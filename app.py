@@ -128,19 +128,20 @@ if st.button("🔄 Hämta live-procent & Beräkna nu", type="primary", use_conta
         elif kostnad > 2200:
             st.warning(f"⚠️ {kostnad:,} rader överstiger 2 200 rader för en fil. Systemet delas upp i {math.ceil(kostnad / 2200)} filer, eller dra reglaget åt vänster.".replace(",", " "))
 
-        if kostnad > 0:
+                if kostnad > 0:
             tecken_map = np.array(["1", "X", "2"])
-            antal_filer = math.ceil(kostnad / MAX_RADER_PER_FIL)
-            for del_nr in range(antal_filer):
-                del_rader = tecken_map[godkanda[del_nr * MAX_RADER_PER_FIL : min((del_nr + 1) * MAX_RADER_PER_FIL, kostnad)]]
-                filnamn = "stryktipset_system.txt" if antal_filer == 1 else f"stryktipset_del{del_nr + 1}.txt"
+            start_idx = 0
+            del_nr = 1
+            while start_idx < kostnad:
+                max_for_denna_del = max(1, MAX_RADER_PER_FIL - (del_nr - 1))
+                slut_idx = min(start_idx + max_for_denna_del, kostnad)
+                del_rader = tecken_map[godkanda[start_idx:slut_idx]]
+                antal_i_del = len(del_rader)
+                filnamn = "stryktipset_system.txt" if (del_nr == 1 and slut_idx == kostnad) else f"stryktipset_del{del_nr}_{antal_i_del}rader.txt"
                 fil_innehall = "Stryktipset\n" + "\n".join("E," + ",".join(r) for r in del_rader)
-                st.download_button(f"📥 1. Ladda ner {filnamn} ({len(del_rader):,} rader)".replace(",", " "), fil_innehall, filnamn, "text/plain", use_container_width=True, key=f"dl_{del_nr}")
+                st.download_button(f"📥 Del {del_nr}: Ladda ner {filnamn} ({antal_i_del:,} rader)".replace(",", " "), fil_innehall, filnamn, "text/plain", use_container_width=True, key=f"dl_{del_nr}")
+                start_idx = slut_idx
+                del_nr += 1
 
             st.link_button("🚀 2. Öppna Spela Tillsammans", "https://svenskaspel.se", use_container_width=True)
             st.link_button("⚽ Alt: Öppna vanliga Stryktipset", "https://svenskaspel.se", use_container_width=True)
-        else:
-            st.warning("0 rader klarade villkoren! Dra reglaget 'Extra marginal' åt höger och beräkna igen.")
-
-        with st.expander("Visa veckans live-procent"):
-            st.dataframe(matcher, use_container_width=True)
