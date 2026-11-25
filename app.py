@@ -17,7 +17,7 @@ def hamta_grundmatris():
 
 def hamta_live_kupong():
     resp = requests.get(API_URL, headers=HEADERS, timeout=10)
-    draw = resp.json()["draws"][0]
+    draw = resp.json()["draws"]
     omgang = draw.get("drawNumber", "Okänd")
     matcher = []
     streck_matris = np.zeros((13, 3), dtype=np.float64)
@@ -38,7 +38,7 @@ def kor_reducering_fran_df(df, streck_matris, extra_marginal=0.0):
     aktiva_df = aktiva_df.sort_values("_prio")
 
     for _, row in aktiva_df.iterrows():
-        if rader.shape[0] == 0: break
+        if rader.shape.__getitem__(0) == 0: break
         typ = str(row["Typ"]).strip().upper()
         v1, v2, p_min, p_max = row["Varde1"], row["Varde2"], row["ProcentMin"], row["ProcentMax"]
         marg = tolka_marginal(row["Marginal"]) + extra_marginal
@@ -89,15 +89,15 @@ if uppladdad_fil is not None:
         st.session_state["senaste_filnamn"] = uppladdad_fil.name
 elif "villkor_df" not in st.session_state:
     st.session_state["villkor_df"] = pd.DataFrame([
-        {"Aktiv": "JA", "Typ": "POANGSUMMA", "Varde1": 21, "Varde2": 26, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Rankpoäng 21-26"},
-        {"Aktiv": "JA", "Typ": "STRECKSUMMA", "Varde1": 490, "Varde2": 545, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Total strecksumma"},
+        {"Aktiv": "JA", "Typ": "POANGSUMMA", "Varde1": 20, "Varde2": 27, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Rankpoäng 20-27"},
+        {"Aktiv": "JA", "Typ": "STRECKSUMMA", "Varde1": 465, "Varde2": 565, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Total strecksumma"},
     ])
 
 st.subheader("🎛️ Snabbjustering & Redigerare")
 extra_marginal = st.slider("Extra marginal på alla intervall (± procentenheter)", -3.0, 5.0, 0.0, 0.5)
 
 with st.expander("✏️ Öppna villkorsredigeraren", expanded=False):
-    filter_text = st.text_input("Sök villkor (t.ex. POANGSUMMA eller Nytt)", "")
+    filter_text = st.text_input("Sök villkor (t.ex. POANGSUMMA eller 424-analys)", "")
     df_att_visa = st.session_state["villkor_df"]
     if filter_text:
         mask = df_att_visa.apply(lambda r: r.astype(str).str.contains(filter_text, case=False).any(), axis=1)
@@ -116,17 +116,17 @@ if st.button("🔄 Hämta live-procent & Beräkna nu", type="primary", use_conta
     with st.spinner("Hämtar streckprocent & räknar igenom 1 594 323 rader..."):
         omgang, matcher, streck_matris = hamta_live_kupong()
         godkanda, antal_aktiva = kor_reducering_fran_df(st.session_state["villkor_df"], streck_matris, extra_marginal)
-        kostnad = godkanda.shape[0]
+        kostnad = godkanda.shape.__getitem__(0)
 
         st.success(f"Omgång {omgang} beräknad med {antal_aktiva} aktiva villkor!")
         c1, c2 = st.columns(2)
         c1.metric("Systemkostnad", f"{kostnad:,} kr".replace(",", " "))
         c2.metric("Antal rader", f"{kostnad:,} st".replace(",", " "))
-             if kostnad > 20000:
-         st.error("⚠️ Över maxgränsen 20 000 kr! Dra reglaget 'Extra marginal' åt vänster.")
-     elif kostnad > 2200:
-         st.warning(f"⚠️ {kostnad:,} rader överstiger 2 200 rader för en fil. Systemet delas upp i {math.ceil(kostnad / 2200)} filer, eller dra reglaget åt vänster.".replace(",", " "))
 
+        if kostnad > 20000:
+            st.error("⚠️ Över maxgränsen 20 000 kr! Dra reglaget 'Extra marginal' åt vänster.")
+        elif kostnad > 2200:
+            st.warning(f"⚠️ {kostnad:,} rader överstiger 2 200 rader för en fil. Systemet delas upp i {math.ceil(kostnad / 2200)} filer, eller dra reglaget åt vänster.".replace(",", " "))
 
         if kostnad > 0:
             tecken_map = np.array(["1", "X", "2"])
