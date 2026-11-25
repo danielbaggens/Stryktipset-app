@@ -3,7 +3,7 @@ import numpy as np, openpyxl, pandas as pd, requests, streamlit as st
 
 st.set_page_config(page_title="Stryktipset Pro", page_icon="⚽", layout="centered")
 HEADERS = {"User-Agent": "Mozilla/5.0"}
-MAX_RADER_PER_FIL = 50000
+MAX_RADER_PER_FIL = 2200
 API_URL = "https://api.spela." + "svenskaspel.se/draw/1/stryktipset/draws"
 
 def tolka_marginal(varde):
