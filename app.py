@@ -114,9 +114,15 @@ with st.expander("✏️ Öppna villkorsredigeraren", expanded=False):
 st.divider()
 if st.button("🔄 Hämta live-procent & Beräkna nu", type="primary", use_container_width=True):
     with st.spinner("Hämtar streckprocent & räknar igenom 1 594 323 rader..."):
-        omgang, matcher, streck_matris = hamta_live_kupong()
-        godkanda, antal_aktiva = kor_reducering_fran_df(st.session_state["villkor_df"], streck_matris, extra_marginal)
-        kostnad = godkanda.shape.__getitem__(0)
+             omgang, matcher, streck_matris = hamta_live_kupong()
+     aktiv_marg = extra_marginal
+     godkanda, antal_aktiva = kor_reducering_fran_df(st.session_state["villkor_df"], streck_matris, aktiv_marg)
+     while godkanda.shape.__getitem__(0) > 20000 and aktiv_marg > -3.0:
+         aktiv_marg -= 0.5
+         godkanda, antal_aktiva = kor_reducering_fran_df(st.session_state["villkor_df"], streck_matris, aktiv_marg)
+     if godkanda.shape.__getitem__(0) > 20000:
+         godkanda = godkanda[:20000]
+     kostnad = godkanda.shape.__getitem__(0)
 
         st.success(f"Omgång {omgang} beräknad med {antal_aktiva} aktiva villkor!")
         c1, c2 = st.columns(2)
