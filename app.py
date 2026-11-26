@@ -4,7 +4,33 @@ import numpy as np, openpyxl, pandas as pd, requests, streamlit as st
 st.set_page_config(page_title="Stryktipset Pro", page_icon="⚽", layout="centered")
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 MAX_RADER_PER_FIL = 2200
-API_URL = "https://api.spela." + "svenskaspel.se/draw/1/stryktipset/draws"
+
+SPEL_INFO = {
+    "⚽ Stryktipset (13 matcher)": {
+        "api": "https://api.spela." + "svenskaspel.se/draw/1/stryktipset/draws",
+        "matcher": 13,
+        "flik": "Villkor",
+        "rubrik": "Stryktipset",
+        "url_tills": "https://svenskaspel.se",
+        "url_egen": "https://svenskaspel.se",
+    },
+    "🌍 Europatipset (13 matcher)": {
+        "api": "https://api.spela." + "svenskaspel.se/draw/1/europatipset/draws",
+        "matcher": 13,
+        "flik": "Villkor_Europa",
+        "rubrik": "Europatipset",
+        "url_tills": "https://svenskaspel.se",
+        "url_egen": "https://svenskaspel.se",
+    },
+    "🎯 Topptipset (8 matcher)": {
+        "api": "https://api.spela." + "svenskaspel.se/draw/1/topptipsetfamily/draws",
+        "matcher": 8,
+        "flik": "Villkor_Topptipset",
+        "rubrik": "Topptipset",
+        "url_tills": "https://svenskaspel.se",
+        "url_egen": "https://svenskaspel.se",
+    },
+}
 
 def tolka_marginal(varde):
     if varde is None or pd.isna(varde) or str(varde).strip() == "": return 0.0
@@ -12,27 +38,29 @@ def tolka_marginal(varde):
     return float(match.group(1).replace(",", ".")) if match else 0.0
 
 @st.cache_data
-def hamta_grundmatris():
-    return np.indices((3,)*13, dtype=np.int8).reshape(13, -1).T
+def hamta_grundmatris(n_matcher):
+    return np.indices((3,)*n_matcher, dtype=np.int8).reshape(n_matcher, -1).T
 
-def hamta_live_kupong():
-    resp = requests.get(API_URL, headers=HEADERS, timeout=10)
-    draw = resp.json()["draws"].pop(0)
+def hamta_live_kupong(api_url, n_matcher):
+    resp = requests.get(api_url, headers=HEADERS, timeout=10)
+    draws = resp.json().get("draws", [])
+    draw = draws.pop(0)
     omgang = draw.get("drawNumber", "Okänd")
+    namn = draw.get("drawComment", "")
     matcher = []
-    streck_matris = np.zeros((13, 3), dtype=np.float64)
-    for idx, ev in enumerate(draw["drawEvents"][:13]):
+    streck_matris = np.zeros((n_matcher, 3), dtype=np.float64)
+    for idx, ev in enumerate(draw["drawEvents"][:n_matcher]):
         sf = ev.get("svenskaFolket", {})
         p1, px, p2 = float(sf.get("one", 33)), float(sf.get("x", 33)), float(sf.get("two", 34))
         streck_matris[idx] = [p1, px, p2]
         matcher.append({"Match": idx + 1, "Lag": ev.get("eventDescription", ""), "1 (%)": p1, "X (%)": px, "2 (%)": p2})
-    return omgang, matcher, streck_matris
+    return f"{omgang} ({namn})" if namn else str(omgang), matcher, streck_matris
 
-def kor_reducering_fran_df(df, streck_matris, extra_marginal=0.0):
-    rader = hamta_grundmatris()
-    rad_streck = streck_matris[np.arange(13), rader]
+def kor_reducering_fran_df(df, streck_matris, n_matcher, extra_marginal=0.0):
+    rader = hamta_grundmatris(n_matcher)
+    rad_streck = streck_matris[np.arange(n_matcher), rader]
     rank_matris = np.argsort(np.argsort(-streck_matris, axis=1), axis=1)
-    rad_rank = rank_matris[np.arange(13), rader]
+    rad_rank = rank_matris[np.arange(n_matcher), rader]
     aktiva_df = df[df["Aktiv"].astype(str).str.strip().str.upper() == "JA"].copy()
     aktiva_df["_prio"] = aktiva_df["Typ"].astype(str).str.strip().str.upper().apply(lambda t: 1 if t.startswith("INTERVALL") else 0)
     aktiva_df = aktiva_df.sort_values("_prio")
@@ -77,54 +105,66 @@ def kor_reducering_fran_df(df, streck_matris, extra_marginal=0.0):
         else: continue
         rader, rad_streck, rad_rank = rader[ok], rad_streck[ok], rad_rank[ok]
     return rader, len(aktiva_df)
-st.title("⚽ Stryktipset Mobilmotor")
+st.title("⚽ Svenska Spel Mobilmotor")
+
+valt_spel = st.radio("Välj kupong:", list(SPEL_INFO.keys()), horizontal=True)
+cfg = SPEL_INFO.get(valt_spel)
+flik_namn = cfg.get("flik")
+n_matcher = cfg.get("matcher")
 
 uppladdad_fil = st.file_uploader("Ladda upp din villkor.xlsx", type=["xlsx"])
+nyckel_state = f"df_{flik_namn}"
+
 if uppladdad_fil is not None:
-    if "senaste_filnamn" not in st.session_state or st.session_state["senaste_filnamn"] != uppladdad_fil.name:
-        df_in = pd.read_excel(uppladdad_fil, sheet_name="Villkor")
+    fil_id = f"{uppladdad_fil.name}_{uppladdad_fil.size}_{flik_namn}"
+    if st.session_state.get("senaste_id") != fil_id:
+        xl = pd.ExcelFile(uppladdad_fil)
+        mal_flik = flik_namn if flik_namn in xl.sheet_names else "Villkor"
+        df_in = xl.parse(mal_flik)
         for col in ["Aktiv", "Typ", "Varde1", "Varde2", "ProcentMin", "ProcentMax", "Marginal", "Källa / Kommentar"]:
             if col not in df_in.columns: df_in[col] = ""
-        st.session_state["villkor_df"] = df_in[["Aktiv", "Typ", "Varde1", "Varde2", "ProcentMin", "ProcentMax", "Marginal", "Källa / Kommentar"]]
-        st.session_state["senaste_filnamn"] = uppladdad_fil.name
-elif "villkor_df" not in st.session_state:
-    st.session_state["villkor_df"] = pd.DataFrame([
-        {"Aktiv": "JA", "Typ": "POANGSUMMA", "Varde1": 20, "Varde2": 27, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Rankpoäng 20-27"},
-        {"Aktiv": "JA", "Typ": "STRECKSUMMA", "Varde1": 465, "Varde2": 565, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Total strecksumma"},
-    ])
+        st.session_state[nyckel_state] = df_in[["Aktiv", "Typ", "Varde1", "Varde2", "ProcentMin", "ProcentMax", "Marginal", "Källa / Kommentar"]]
+        st.session_state["senaste_id"] = fil_id
 
-st.subheader("🎛️ Snabbjustering & Redigerare")
+if nyckel_state not in st.session_state:
+    if n_matcher == 8:
+        st.session_state[nyckel_state] = pd.DataFrame([
+            {"Aktiv": "JA", "Typ": "STRECKSUMMA", "Varde1": 275, "Varde2": 365, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Topptipset strecksumma"},
+            {"Aktiv": "JA", "Typ": "POANGSUMMA", "Varde1": 11, "Varde2": 18, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Rankpoäng 11-18"},
+        ])
+    else:
+        st.session_state[nyckel_state] = pd.DataFrame([
+            {"Aktiv": "JA", "Typ": "STRECKSUMMA", "Varde1": 440, "Varde2": 570, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Strecksumma 13 matcher"},
+            {"Aktiv": "JA", "Typ": "POANGSUMMA", "Varde1": 19, "Varde2": 28, "ProcentMin": None, "ProcentMax": None, "Marginal": "", "Källa / Kommentar": "Rankpoäng 19-28"},
+        ])
+
+st.subheader(f"🎛️ Inställningar ({flik_namn})")
 extra_marginal = st.slider("Extra marginal på alla intervall (± procentenheter)", -3.0, 5.0, 0.0, 0.5)
 
 with st.expander("✏️ Öppna villkorsredigeraren", expanded=False):
-    filter_text = st.text_input("Sök villkor (t.ex. POANGSUMMA eller 424-analys)", "")
-    df_att_visa = st.session_state["villkor_df"]
+    filter_text = st.text_input("Sök villkor", "")
+    df_att_visa = st.session_state[nyckel_state]
     if filter_text:
         mask = df_att_visa.apply(lambda r: r.astype(str).str.contains(filter_text, case=False).any(), axis=1)
         redigerad_del = st.data_editor(df_att_visa[mask], num_rows="dynamic", use_container_width=True)
-        st.session_state["villkor_df"].update(redigerad_del)
+        st.session_state[nyckel_state].update(redigerad_del)
     else:
-        st.session_state["villkor_df"] = st.data_editor(df_att_visa, num_rows="dynamic", use_container_width=True)
-
-    excel_buffer = io.BytesIO()
-    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-        st.session_state["villkor_df"].to_excel(writer, sheet_name="Villkor", index=False)
-    st.download_button("💾 Spara uppdaterad villkor.xlsx", excel_buffer.getvalue(), "villkor_uppdaterad.xlsx", use_container_width=True)
+        st.session_state[nyckel_state] = st.data_editor(df_att_visa, num_rows="dynamic", use_container_width=True)
 
 st.divider()
-if st.button("🔄 Hämta live-procent & Beräkna nu", type="primary", use_container_width=True):
-    with st.spinner("Hämtar streckprocent & räknar igenom 1 594 323 rader..."):
-        omgang, matcher, streck_matris = hamta_live_kupong()
+if st.button(f"🔄 Hämta {cfg.get('rubrik')} & Beräkna nu", type="primary", use_container_width=True):
+    with st.spinner(f"Hämtar {cfg.get('rubrik')} & räknar igenom {3**n_matcher:,} rader...".replace(",", " ")):
+        omgang, matcher, streck_matris = hamta_live_kupong(cfg.get("api"), n_matcher)
         aktiv_marg = extra_marginal
-        godkanda, antal_aktiva = kor_reducering_fran_df(st.session_state["villkor_df"], streck_matris, aktiv_marg)
+        godkanda, antal_aktiva = kor_reducering_fran_df(st.session_state[nyckel_state], streck_matris, n_matcher, aktiv_marg)
         while godkanda.shape.__getitem__(0) > 20000 and aktiv_marg > -3.0:
             aktiv_marg -= 0.5
-            godkanda, antal_aktiva = kor_reducering_fran_df(st.session_state["villkor_df"], streck_matris, aktiv_marg)
+            godkanda, antal_aktiva = kor_reducering_fran_df(st.session_state[nyckel_state], streck_matris, n_matcher, aktiv_marg)
         if godkanda.shape.__getitem__(0) > 20000:
             godkanda = godkanda[:20000]
         kostnad = godkanda.shape.__getitem__(0)
 
-        st.success(f"Omgång {omgang} beräknad med {antal_aktiva} aktiva villkor (Marginal: {aktiv_marg})!")
+        st.success(f"{cfg.get('rubrik')} omgång {omgang} beräknad med {antal_aktiva} aktiva villkor (Marginal: {aktiv_marg})!")
         c1, c2 = st.columns(2)
         c1.metric("Systemkostnad", f"{kostnad:,} kr".replace(",", " "))
         c2.metric("Antal rader", f"{kostnad:,} st".replace(",", " "))
@@ -134,6 +174,7 @@ if st.button("🔄 Hämta live-procent & Beräkna nu", type="primary", use_conta
 
         if kostnad > 0:
             tecken_map = np.array(["1", "X", "2"])
+            prefix = cfg.get("rubrik").lower()
             start_idx = 0
             del_nr = 1
             while start_idx < kostnad:
@@ -141,14 +182,14 @@ if st.button("🔄 Hämta live-procent & Beräkna nu", type="primary", use_conta
                 slut_idx = min(start_idx + max_for_denna_del, kostnad)
                 del_rader = tecken_map[godkanda[start_idx:slut_idx]]
                 antal_i_del = len(del_rader)
-                filnamn = "stryktipset_system.txt" if (del_nr == 1 and slut_idx == kostnad) else f"stryktipset_del{del_nr}_{antal_i_del}rader.txt"
-                fil_innehall = "Stryktipset\n" + "\n".join("E," + ",".join(r) for r in del_rader)
+                filnamn = f"{prefix}_system.txt" if (del_nr == 1 and slut_idx == kostnad) else f"{prefix}_del{del_nr}_{antal_i_del}rader.txt"
+                fil_innehall = f"{cfg.get('rubrik')}\n" + "\n".join("E," + ",".join(r) for r in del_rader)
                 st.download_button(f"📥 Del {del_nr}: Ladda ner {filnamn} ({antal_i_del:,} rader)".replace(",", " "), fil_innehall, filnamn, "text/plain", use_container_width=True, key=f"dl_{del_nr}")
                 start_idx = slut_idx
                 del_nr += 1
 
-            st.link_button("🚀 2. Öppna Spela Tillsammans", "https://svenskaspel.se", use_container_width=True)
-            st.link_button("⚽ Alt: Öppna vanliga Stryktipset", "https://svenskaspel.se", use_container_width=True)
+            st.link_button("🚀 2. Öppna Spela Tillsammans", cfg.get("url_tills"), use_container_width=True)
+            st.link_button(f"⚽ Alt: Öppna {cfg.get('rubrik')}", cfg.get("url_egen"), use_container_width=True)
         else:
             st.warning("0 rader klarade villkoren! Dra reglaget 'Extra marginal' åt höger och beräkna igen.")
 
